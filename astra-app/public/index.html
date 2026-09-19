@@ -922,11 +922,22 @@
       const body = { system: systemPrompt, messages: apiMessages };
       if (mode.tools) body.tools = true;
 
-      const result = await streamChat(body, (partial) => {
-        const bubbleEl = document.getElementById('pending-bubble');
-        if (bubbleEl) bubbleEl.innerHTML = formatContent(partial || '…');
-        thread.scrollTop = thread.scrollHeight;
-      });
+      const result = await withRetry(
+        () => streamChat(body, (partial) => {
+          const bubbleEl = document.getElementById('pending-bubble');
+          if (bubbleEl) bubbleEl.innerHTML = formatContent(partial || '…');
+          thread.scrollTop = thread.scrollHeight;
+        }),
+        {
+          retries: 2,
+          delayMs: 4000,
+          isRetryable: (e) => /overload|high demand|unavailable|503/i.test(e.message || ''),
+          onRetry: (n) => {
+            const bubbleEl = document.getElementById('pending-bubble');
+            if (bubbleEl) bubbleEl.innerHTML = '<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span>El modelo está saturado, reintentando (' + n + '/2)…</span></div>';
+          },
+        }
+      );
 
       const replyText = result.text || 'No obtuve una respuesta. Intenta de nuevo.';
       const sources = result.sources || [];
@@ -945,8 +956,31 @@
       console.error('Fly API error:', err);
     }
 
+    async function withRetry(fn, opts){
+      opts = opts || {};
+      const retries = opts.retries === undefined ? 2 : opts.retries;
+      const delayMs = opts.delayMs === undefined ? 4000 : opts.delayMs;
+      const isRetryable = opts.isRetryable || function(){ return true; };
+      const onRetry = opts.onRetry;
+      let lastErr;
+      for (let attempt = 0; attempt <= retries; attempt++){
+        try { return await fn(); }
+        catch (err){
+          lastErr = err;
+          if (attempt < retries && isRetryable(err)){
+            if (onRetry) onRetry(attempt + 1);
+            await new Promise(function(r){ setTimeout(r, delayMs); });
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw lastErr;
+    }
+
     function friendlyErrorMessage(err){
       const msg = (err && err.message) || '';
+      if (/overload|high demand|unavailable|503/i.test(msg)) return 'El modelo de Google está saturado por mucha demanda en este momento. Ya lo intenté varias veces automáticamente sin éxito — espera un minuto y prueba de nuevo.';
       if (/429|quota|rate.?limit|resource.?exhaust|exceeded/i.test(msg)) return 'Llegaste al límite de mensajes por minuto del plan gratuito de Google. Espera unos 30-60 segundos y vuelve a intentar.';
       if (/401|no autorizado/i.test(msg)) return 'Sesión no autorizada. Recarga la página e ingresa la contraseña de nuevo.';
       if (msg) return 'Fly no pudo responder: ' + msg;
