@@ -934,14 +934,23 @@
       const pendingIdx = conv.messages.findIndex(m => m.pending);
       conv.messages[pendingIdx] = { role:'fly', content: replyText, sources, time: Date.now() };
 
-      if (memoryEnabled){
+      conv.exchangeCount = (conv.exchangeCount || 0) + 1;
+      if (memoryEnabled && conv.exchangeCount % 3 === 0){
         const lastUser = [...conv.messages].reverse().find(m => m.role === 'user');
         if (lastUser) learnFromExchange(lastUser.content, replyText);
       }
     } catch (err) {
       const pendingIdx = conv.messages.findIndex(m => m.pending);
-      conv.messages[pendingIdx] = { role:'fly', content:'Ocurrió un error al conectar con Fly. Intenta de nuevo.', error:true };
+      conv.messages[pendingIdx] = { role:'fly', content: friendlyErrorMessage(err), error:true };
       console.error('Fly API error:', err);
+    }
+
+    function friendlyErrorMessage(err){
+      const msg = (err && err.message) || '';
+      if (/429|quota|rate.?limit|resource.?exhaust|exceeded/i.test(msg)) return 'Llegaste al límite de mensajes por minuto del plan gratuito de Google. Espera unos 30-60 segundos y vuelve a intentar.';
+      if (/401|no autorizado/i.test(msg)) return 'Sesión no autorizada. Recarga la página e ingresa la contraseña de nuevo.';
+      if (msg) return 'Fly no pudo responder: ' + msg;
+      return 'Ocurrió un error al conectar con Fly. Intenta de nuevo.';
     }
     conv.updatedAt = Date.now();
     persistConversations();
