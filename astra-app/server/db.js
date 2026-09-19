@@ -1,11 +1,11 @@
 const path = require('path');
-const Database = require('better-sqlite3');
+const fs = require('fs');
+const { DatabaseSync } = require('node:sqlite'); // SQLite integrado en Node.js (sin compilar nada)
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'astra.db');
-require('fs').mkdirSync(path.dirname(dbPath), { recursive: true });
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
+const db = new DatabaseSync(dbPath);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS conversations (
